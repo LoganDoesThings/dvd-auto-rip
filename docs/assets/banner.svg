@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="300" viewBox="0 0 1120 300" role="img" aria-labelledby="title desc">
+<title id="title">DVD Auto Rip</title><desc id="desc">Local DVD backups, verified originals, and optional enhancement.</desc>
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#08151f"/><stop offset="1" stop-color="#153b45"/></linearGradient><linearGradient id="disc" x2="1" y2="1"><stop stop-color="#9af4d9"/><stop offset=".5" stop-color="#4199bc"/><stop offset="1" stop-color="#9c91ec"/></linearGradient></defs>
+<rect width="1120" height="300" rx="22" fill="url(#bg)"/>
+<circle cx="964" cy="152" r="139" fill="none" stroke="#8ce4d0" stroke-opacity=".08" stroke-width="24"/>
+<circle cx="964" cy="152" r="104" fill="url(#disc)" opacity=".93"/>
+<circle cx="964" cy="152" r="76" fill="none" stroke="#fff" stroke-opacity=".2"/>
+<circle cx="964" cy="152" r="31" fill="#102731"/><circle cx="964" cy="152" r="16" fill="#08151f"/>
+<path d="M885 87a103 103 0 0 1 70-38" fill="none" stroke="#fff" stroke-opacity=".45" stroke-width="5" stroke-linecap="round"/>
+<g font-family="DejaVu Sans,Arial,sans-serif"><text x="54" y="60" fill="#86dfc8" font-size="13" letter-spacing="3">INSERT · RIP · VERIFY · ENHANCE</text>
+<text x="50" y="132" fill="#f2fbff" font-size="62" font-weight="700">DVD Auto Rip</text>
+<text x="54" y="177" fill="#bcd1dd" font-size="21">Local DVD backups. Verified originals. Optional enhancement.</text>
+<rect x="54" y="213" width="167" height="35" rx="17" fill="#214c51"/><text x="73" y="236" fill="#c7ffec" font-size="13">Originals preserved</text>
+<rect x="234" y="213" width="170" height="35" rx="17" fill="#253d55"/><text x="253" y="236" fill="#d5eaff" font-size="13">One-shot recovery</text>
+<rect x="417" y="213" width="191" height="35" rx="17" fill="#393852"/><text x="436" y="236" fill="#e8defc" font-size="13">Optional 1080p / 4K</text></g>
+</svg>
