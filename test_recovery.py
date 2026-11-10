@@ -226,6 +226,23 @@ for title in range(1,7):
         self.assertEqual(calls,[{'recovery_only':True,'title_index':29}])
         self.assertIsNone(self.engine.title_next_disc)
 
+    def test_enhancement_failure_does_not_invalidate_verified_rip(self):
+        self.primary_result = movie()
+        def failed(source):
+            raise RuntimeError('output drive missing')
+        self.engine.on_saved = failed
+        self.run_disc()
+        self.assertTrue(self.engine.history)
+        self.assertTrue(any('original movie saved' in message for message in self.messages))
+
+    def test_failed_rip_does_not_queue_enhancement(self):
+        self.recovery_result = movie(100)
+        calls = []
+        self.engine.on_saved = calls.append
+        with self.assertRaises(RuntimeError):
+            self.run_disc()
+        self.assertFalse(calls)
+
     def test_subprocess_stderr_errors_reject_exit_zero(self):
         log = self.root / 'decode.log'
         with self.assertRaisesRegex(RuntimeError, 'Playback decoding errors'):

@@ -42,3 +42,10 @@ Logs/
 *.bup
 *.BUP
 *.iso
+
+# Enhancement queue/account state and generated jobs
+enhancements.json
+enhancement*.lock
+Enhancement job */
+Enhanced Movies/
+Enhancement Tests/

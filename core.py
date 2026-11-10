@@ -75,6 +75,7 @@ class Engine:
         self.busy = False
         self.recovery_next_disc = False
         self.title_next_disc = None
+        self.on_saved = None
         STATE.mkdir(parents=True, exist_ok=True)
         self.history_file = STATE / 'completed.json'
         try:
@@ -257,6 +258,14 @@ class Engine:
         self.check_cancelled()
         return partial
 
+    def queue_enhancement(self, final):
+        if self.on_saved is not None:
+            try:
+                self.on_saved(final)
+            except Exception as exc:
+                # An enhancement failure never invalidates an already verified original rip.
+                self.report(f'Enhancement needs attention; original movie saved: {exc}')
+
     def process(self, identity, mount, device, recovery_only=False, title_index=None):
         self.stop.clear()
         self.check_cancelled()
@@ -301,6 +310,7 @@ class Engine:
             key = f'{identity}:{index}'
             if self.history.get(key) == str(final) and final.exists():
                 self.report(f'Title {index} already completed; skipping.')
+                self.queue_enhancement(final)
                 continue
             if final.exists():
                 raise RuntimeError(f'Existing untracked output preserved: {final}')
@@ -339,6 +349,7 @@ class Engine:
             tmp.write_text(json.dumps(self.history, indent=2))
             tmp.replace(self.history_file)
             self.report(f'Saved: {final.name}')
+            self.queue_enhancement(final)
         self.report(f'Disc finished. Files: {folder}. Spot-check playback and captions before ejecting.')
 
     def watch(self):

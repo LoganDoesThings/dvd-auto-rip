@@ -12,12 +12,25 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib
 from core import Engine, STATE, OUTPUT
+from enhancement import Manager, PRESETS, DEFAULT_OUTPUT
+
+
+def automatic_enhancement(engine, config, manager=None):
+    engine.on_saved = None
+    if config.get("enhance_after_rip", False):
+        manager = manager or Manager(STATE)
+        def enqueue(source):
+            folder = manager.enqueue(source, config.get("enhancement_preset", "4k_hdr"),
+                                     config.get("enhancement_destination", str(DEFAULT_OUTPUT)))
+            engine.report(f"Enhancement queued or already recorded: {folder.name}. Original preserved.")
+        engine.on_saved = enqueue
+
 
 
 class Window(Gtk.Window):
     def __init__(self, recover_current=False, selected_title=None):
         super().__init__(title='DVD Auto Rip')
-        self.set_default_size(740, 460)
+        self.set_default_size(820, 680)
         self.set_border_width(18)
         self.engine = Engine(self.report)
         self.engine.recovery_next_disc = recover_current
@@ -27,6 +40,8 @@ class Window(Gtk.Window):
             config = json.loads(self.config_file.read_text())
         except (OSError, ValueError):
             config = {}
+        self.config = config
+        self.enhancements = Manager(STATE)
         self.engine.enabled = config.get('enabled', True)
         self.engine.minimum_minutes = config.get('minimum_minutes', 40)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -45,6 +60,40 @@ class Window(Gtk.Window):
         self.minimum.connect('value-changed', self.settings)
         row.pack_start(self.minimum, False, False, 0)
         box.pack_start(row, False, False, 0)
+        self.enhance_toggle = Gtk.CheckButton(label='Create an enhanced copy after verified rips (optional)')
+        self.enhance_toggle.set_active(config.get('enhance_after_rip', False))
+        box.pack_start(self.enhance_toggle, False, False, 0)
+        enhancement_row = Gtk.Box(spacing=10)
+        self.enhance_mode = Gtk.ComboBoxText()
+        for key, (_, _, hdr, _, label) in PRESETS.items():
+            self.enhance_mode.append(key, label + (' — experimental' if hdr else ''))
+        self.enhance_mode.set_active_id(config.get('enhancement_preset', '4k_hdr'))
+        enhancement_row.pack_start(self.enhance_mode, False, False, 0)
+        self.enhance_destination = Gtk.FileChooserButton(title='Choose enhanced-movie folder',
+                                                       action=Gtk.FileChooserAction.SELECT_FOLDER)
+        DEFAULT_OUTPUT.mkdir(parents=True, exist_ok=True)
+        self.enhancement_destination_path = config.get('enhancement_destination', str(DEFAULT_OUTPUT))
+        self.enhance_destination.set_filename(self.enhancement_destination_path)
+        enhancement_row.pack_start(self.enhance_destination, True, True, 0)
+        box.pack_start(enhancement_row, False, False, 0)
+        enhancement_buttons = Gtk.Box(spacing=10)
+        for label, callback in [('Enhance a saved movie…', self.enhance_movie),
+                                ('Stop enhancement', self.stop_enhancement),
+                                ('Open enhanced movies', self.open_enhanced)]:
+            button = Gtk.Button(label=label)
+            button.connect('clicked', callback)
+            enhancement_buttons.pack_start(button, True, True, 0)
+        box.pack_start(enhancement_buttons, False, False, 0)
+        self.enhance_status = Gtk.Label(label='Enhancement: optional; originals are kept.')
+        self.enhance_status.set_line_wrap(True)
+        self.enhance_status.set_xalign(0)
+        box.pack_start(self.enhance_status, False, False, 0)
+        explanation = Gtk.Label(label='HDR is converted from SDR. Long jobs keep running after the ripper closes; use Stop enhancement to cancel.')
+        explanation.set_line_wrap(True)
+        box.pack_start(explanation, False, False, 0)
+        self.enhance_toggle.connect('toggled', self.settings)
+        self.enhance_mode.connect('changed', self.settings)
+        self.enhance_destination.connect('file-set', self.enhancement_folder_selected)
         self.status = Gtk.Label(label='Watching for a mounted movie DVD…')
         self.status.set_line_wrap(True)
         self.status.set_xalign(0)
@@ -66,6 +115,8 @@ class Window(Gtk.Window):
         box.pack_start(note, False, False, 0)
         self.connect('delete-event', self.hide_window)
         self.last_message = ''
+        automatic_enhancement(self.engine, config, self.enhancements)
+        GLib.timeout_add(2000, self.refresh_enhancements)
         threading.Thread(target=self.engine.watch, daemon=True).start()
 
     def report(self, message):
@@ -91,8 +142,72 @@ class Window(Gtk.Window):
             return
         self.engine.enabled = self.toggle.get_active()
         self.engine.minimum_minutes = self.minimum.get_value_as_int()
-        self.config_file.write_text(json.dumps({'enabled': self.engine.enabled,
-                                               'minimum_minutes': self.engine.minimum_minutes}))
+        self.config.update(enabled=self.engine.enabled, minimum_minutes=self.engine.minimum_minutes)
+        if hasattr(self, 'enhance_destination'):
+            self.config.update(enhance_after_rip=self.enhance_toggle.get_active(),
+                               enhancement_preset=self.enhance_mode.get_active_id() or '4k_hdr',
+                               enhancement_destination=self.enhancement_destination_path)
+            automatic_enhancement(self.engine, dict(self.config), self.enhancements)
+        self.config_file.write_text(json.dumps(self.config, indent=2))
+
+    def enhancement_folder_selected(self, *_):
+        selected = self.enhance_destination.get_filename()
+        if selected:
+            self.enhancement_destination_path = selected
+            self.settings()
+
+    def enhance_movie(self, *_):
+        dialog = Gtk.FileChooserDialog(title='Choose a finished movie to enhance', parent=self,
+                                       action=Gtk.FileChooserAction.OPEN)
+        dialog.add_buttons('Cancel', Gtk.ResponseType.CANCEL, 'Enhance', Gtk.ResponseType.OK)
+        video_filter = Gtk.FileFilter()
+        video_filter.set_name('Movie files')
+        for pattern in ('*.mkv', '*.mp4', '*.mov'):
+            video_filter.add_pattern(pattern)
+        dialog.add_filter(video_filter)
+        dialog.set_current_folder(str(OUTPUT))
+        response = dialog.run()
+        filename = dialog.get_filename()
+        dialog.destroy()
+        if response == Gtk.ResponseType.OK and filename:
+            try:
+                folder = self.enhancements.enqueue(filename, self.enhance_mode.get_active_id() or '4k_hdr',
+                                                   self.enhancement_destination_path, retry=True)
+                self.enhance_status.set_text(f'Enhancement queued or already running: {folder.name}. Original preserved.')
+            except Exception as exc:
+                self.enhance_status.set_text(f'Enhancement needs attention: {exc}')
+
+    def stop_enhancement(self, *_):
+        try:
+            stopped = self.enhancements.stop_active()
+            self.enhance_status.set_text('Stopping enhancement; partial will be kept.' if stopped else 'No enhancement is running.')
+        except Exception as exc:
+            self.enhance_status.set_text(f'Enhancement needs attention: {exc}')
+
+    def open_enhanced(self, *_):
+        folder = self.enhancement_destination_path
+        if not Path(folder).is_dir():
+            self.enhance_status.set_text('Output folder unavailable; mount the selected drive first.')
+            return
+        subprocess.Popen(['xdg-open', folder])
+
+    def refresh_enhancements(self):
+        try:
+            jobs = self.enhancements.jobs()
+            active = next((j for j in jobs if j.get('state') in ('encoding', 'verifying', 'checking_metadata', 'starting')), None)
+            active = active or next((j for j in jobs if j.get('state') == 'queued'), None)
+            job = active or (jobs[-1] if jobs else None)
+            if job:
+                state = job.get('state', 'unknown')
+                eta = job.get('eta_seconds')
+                remaining = f', about {eta / 3600:.1f} hours left' if eta is not None and state in ('encoding', 'verifying') else ''
+                title = Path(job['source']).stem
+                detail = f" {float(job.get('percent', 0)):.1f}%{remaining}" if active else ''
+                error = f" — {job['error']}" if job.get('error') else ''
+                self.enhance_status.set_text(f'Enhancement: {title} — {state}{detail}{error}')
+        except Exception as exc:
+            self.enhance_status.set_text(f'Enhancement status unavailable: {exc}')
+        return True
 
     def retry(self, *_):
         if self.engine.busy:
@@ -134,7 +249,18 @@ if __name__ == '__main__':
                         help='Use the backup DVD reader for the next detected disc, then return to normal.')
     parser.add_argument('--title', type=int, metavar='NUMBER',
                         help='Scan and rip only this title on the next detected disc, then return to automatic selection.')
+    parser.add_argument('--enhance', type=Path, metavar='MOVIE', help='Queue an enhanced copy of a saved movie.')
+    parser.add_argument('--enhancement-preset', choices=tuple(PRESETS), default='4k_hdr')
+    parser.add_argument('--enhancement-output', type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument('--enhancement-status', action='store_true', help='Print enhancement job status without starting the watcher.')
     args = parser.parse_args()
+    if args.enhance or args.enhancement_status:
+        manager = Manager(STATE)
+        if args.enhance:
+            print(manager.enqueue(args.enhance, args.enhancement_preset, args.enhancement_output, retry=True))
+        else:
+            print(json.dumps(manager.jobs(), indent=2))
+        raise SystemExit(0)
     if args.title is not None and args.title < 1:
         parser.error('--title must be a positive integer')
     if not args.headless and not Gtk.init_check([])[0]:
@@ -175,6 +301,7 @@ if __name__ == '__main__':
             config = {}
         engine.enabled = config.get('enabled', True)
         engine.minimum_minutes = config.get('minimum_minutes', 40)
+        automatic_enhancement(engine, config)
         # Ignore GUI reopen requests while in terminal mode.
         signal.signal(signal.SIGUSR1, lambda *_: None)
         def stop_watcher(*_):

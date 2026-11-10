@@ -83,3 +83,27 @@ Fresh Shrek 2 scanning also reveals title 12 (1:29:47), which the configured all
 - Quit the existing watcher and use `~/.local/bin/dvd-auto-rip --recover-current --title NUMBER` to scan/rip only a chosen title on the next detected disc. The title choice is consumed once; subsequent discs return to normal automatic selection. A missing/too-short selected title fails rather than substituting a different movie.
 - Iron Man 2 disc `IRON_MAN_2_D1` (fingerprint prefix `b6e31bf3`) advertises 99 titles. A bounded local DVD menu-navigation diagnostic reached title 29 (2:04:30, 18 chapters). This is evidence for this specific disc, not a hardcoded title rule for every edition.
 - Physical verification November 10: the updated GUI scanned title 29 directly with fresh reading (source 2:04:30, MPEG-2, five audio/eleven subtitles), encoded the full film, and passed runtime/track checks plus a complete video/all-audio decoding check. Output is 2:04:37, 3,110,684,148 bytes, with all five audio/eleven subtitles. Encode reported zero video/audio decoder errors and no backward audio/video timing jumps. Subtitle warnings were logged; subjective caption timing is not verified. Final file: `~/Videos/DVD Rips/IRON_MAN_2_D1-b6e31bf3/IRON_MAN_2_D1 - Title 29.mkv`.
+
+## Optional enhanced movie copies
+
+Enhancement is **off by default** and creates a separate MKV. It never replaces the verified original rip.
+
+- Choose **1080p SDR**, **1080p HDR (SDR-converted)** or **4K HDR (SDR-converted)**, then choose a destination folder. HDR profiles are experimental creative conversions, not native studio HDR remasters or HDR certifications. Processing uses conventional cleanup/scaling, not AI detail reconstruction.
+- Use **Enhance a saved movie…** for an existing finished movie. Optionally enable **Create an enhanced copy after verified rips** for future completed rips. An enhancement failure does not change the original rip’s completion status.
+- The enhancement status shows stage, percentage and an estimated time remaining. **Stop enhancement** requests cancellation and preserves its partial file. Closing/quitting the ripper leaves enhancement workers running; use the separate Stop enhancement control to stop them. Keep the computer awake and powered on.
+- Jobs are serialized. Duplicate requests reuse an active/completed job rather than launching another full encode. The current pre-integration Iron Man 2 conversion is adopted for status/Stop without restarting it. Failed/stopped/interrupted jobs need an explicit manual retry; they do not loop automatically.
+- Choose a mounted larger drive with the folder picker. Missing/disconnected output drives fail safely rather than silently switching to the system disk. Existing destination settings are preserved when the drive is unavailable. No drive is formatted.
+- Workers reserve 3 GiB and check output-drive identity/free space during work. Conservative preflight estimates include maximum video bitrate plus the source size and reserve. Video uses CRF18 HEVC Main 10 with x265 veryfast, capped at 6 Mbps for 1080p and 8 Mbps for 4K (buffer twice that). Actual size/time depends on the film and CPU.
+- Frame rate, all original audio/subtitles/attachments, and chapter count are preserved. Original display aspect is maintained with black padding for 4:3 or other shapes. Known interlaced sources, already-HDR sources, and missing color/pixel-aspect metadata require separate treatment rather than guessing.
+- The SDR-derived HDR recipe converts real source color metadata into linear BT.2020, expands highlights, and encodes PQ/ten-bit video. No mastering-display/MaxCLL metadata is fabricated. The DVD’s missing detail/highlights cannot be recovered by increasing resolution.
+- An enhanced output keeps `.partial.mkv` until dimensions, color signaling, duration, track/chapter counts and full video/all-audio decoding pass. Completion metadata lives in the job folder; account queue paths live in `~/.local/share/dvd-auto-rip/enhancements.json` and are not uploaded.
+- Requires FFmpeg/FFprobe with libx265, zscale, hqdn3d, hue, unsharp and geq (tested with Ubuntu FFmpeg 6.1). Tools on PATH or the existing `~/.local/opt/ffmpeg` installation are supported.
+
+Queue or inspect jobs without opening a window:
+
+```bash
+~/.local/bin/dvd-auto-rip --enhance '/path/to/finished movie.mkv' --enhancement-preset 4k_hdr --enhancement-output '/mounted/drive/Movies'
+~/.local/bin/dvd-auto-rip --enhancement-status
+```
+
+Validation: all **63 automated tests** passed. A short synthetic end-to-end 4K PQ/Main10 job retained audio, a subtitle and chapter, fully decoded, and preserved its source bytes. GTK controls/settings were smoke-tested, including missing-drive destination retention. A synthetic 4:3 pixel check confirmed legal-black side bars. The full Iron Man 2 enhancement remains in progress; full-film success is not claimed until its job completes validation.
