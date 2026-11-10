@@ -15,12 +15,13 @@ from core import Engine, STATE, OUTPUT
 
 
 class Window(Gtk.Window):
-    def __init__(self, recover_current=False):
+    def __init__(self, recover_current=False, selected_title=None):
         super().__init__(title='DVD Auto Rip')
         self.set_default_size(740, 460)
         self.set_border_width(18)
         self.engine = Engine(self.report)
         self.engine.recovery_next_disc = recover_current
+        self.engine.title_next_disc = selected_title
         self.config_file = STATE / 'settings.json'
         try:
             config = json.loads(self.config_file.read_text())
@@ -73,7 +74,7 @@ class Window(Gtk.Window):
     def show_message(self, message):
         self.status.set_text(message)
         # Percent updates stay in the status label; preserve a readable history.
-        if not message.startswith('Encoding:') and message != self.last_message:
+        if not message.startswith(('Encoding:', 'Scanning:')) and message != self.last_message:
             buffer = self.text.get_buffer()
             buffer.insert(buffer.get_end_iter(), message + '\n')
             if message.startswith(('Disc finished.', 'Needs attention:')):
@@ -131,7 +132,11 @@ if __name__ == '__main__':
                         help='Watch DVDs in this terminal without opening a desktop window.')
     parser.add_argument('--recover-current', action='store_true',
                         help='Use the backup DVD reader for the next detected disc, then return to normal.')
+    parser.add_argument('--title', type=int, metavar='NUMBER',
+                        help='Scan and rip only this title on the next detected disc, then return to automatic selection.')
     args = parser.parse_args()
+    if args.title is not None and args.title < 1:
+        parser.error('--title must be a positive integer')
     if not args.headless and not Gtk.init_check([])[0]:
         print('DVD Auto Rip cannot connect to a graphical desktop.\n'
               'Open DVD Auto Rip from the Ubuntu applications menu, or run\n'
@@ -162,6 +167,7 @@ if __name__ == '__main__':
 
         engine = Engine(report)
         engine.recovery_next_disc = args.recover_current
+        engine.title_next_disc = args.title
         config_file = STATE / 'settings.json'
         try:
             config = json.loads(config_file.read_text())
@@ -182,7 +188,7 @@ if __name__ == '__main__':
         engine.watch()
         report('DVD watcher stopped.')
         raise SystemExit(0)
-    window = Window(recover_current=args.recover_current)
+    window = Window(recover_current=args.recover_current, selected_title=args.title)
     GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1,
                          lambda: (window.show_all(), window.present(), True)[-1])
     window.show_all()

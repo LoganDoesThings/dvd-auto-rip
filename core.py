@@ -74,6 +74,7 @@ class Engine:
         self.seen = set()
         self.busy = False
         self.recovery_next_disc = False
+        self.title_next_disc = None
         STATE.mkdir(parents=True, exist_ok=True)
         self.history_file = STATE / 'completed.json'
         try:
@@ -89,6 +90,8 @@ class Engine:
         diagnostics = bytearray()
         best = (-1, -1.0)
         decode_time = -1
+        scan_best = (-1, -1, -1.0)
+        scan_diagnostics = bytearray()
         stderr_seen = False
         last_size = 0
         last_progress = time.monotonic()
@@ -119,6 +122,24 @@ class Engine:
                         # Merging them can insert a diagnostic inside a JSON string.
                         if key.fileobj is proc.stdout:
                             transcript.extend(chunk)
+                            scan_diagnostics.extend(chunk)
+                            del scan_diagnostics[:-32768]
+                            scan_text = scan_diagnostics.decode(errors='replace')
+                            states = re.findall(r'"Scanning":\s*\{([^{}]*)\}', scan_text)
+                            for state in states:
+                                try:
+                                    scanning = json.loads('{' + state + '}')
+                                    scan_progress = (int(scanning.get('Title', 0)),
+                                                     int(scanning.get('Preview', 0)),
+                                                     float(scanning.get('Progress', 0)))
+                                except (ValueError, TypeError):
+                                    continue
+                                if scan_progress > scan_best:
+                                    scan_best = scan_progress
+                                    last_progress = now
+                                    self.report(f"Scanning: title {scanning.get('Title', 0)}/"
+                                                f"{scanning.get('TitleCount', '?')}, "
+                                                f"{float(scanning.get('Progress', 0)):.0%}")
                         elif chunk.strip():
                             stderr_seen = True
                         diagnostics.extend(chunk)
@@ -165,7 +186,9 @@ class Engine:
                                 '--scan', '--json', '--min-duration', '600', '--previews', '1'],
                                log, env_overrides=RECOVERY_ENV if recovery else None)
         try:
-            return title_set(raw)
+            titles = title_set(raw)
+            log.with_suffix('.json').write_text(json.dumps(titles, indent=2))
+            return titles
         except (ValueError, KeyError, TypeError) as exc:
             raise RuntimeError(f'Unreadable title information. See {log.name}') from exc
 
@@ -234,9 +257,11 @@ class Engine:
         self.check_cancelled()
         return partial
 
-    def process(self, identity, mount, device, recovery_only=False):
+    def process(self, identity, mount, device, recovery_only=False, title_index=None):
         self.stop.clear()
         self.check_cancelled()
+        if title_index is not None and (not isinstance(title_index, int) or title_index < 1):
+            raise ValueError('Selected title must be a positive integer.')
         if not Path(device).is_file() and not Path(device).is_block_device():
             raise RuntimeError(f'DVD device {device} is unavailable. Launch from your desktop session.')
         self.output.mkdir(parents=True, exist_ok=True)
@@ -250,7 +275,7 @@ class Engine:
         self.report(f'Scanning {label}. This can take several minutes.')
         recovering = recovery_only
         try:
-            scanned = self.scan(device, 0, logs / 'scan.log', recovery=recovering)
+            scanned = self.scan(device, title_index or 0, logs / 'scan.log', recovery=recovering)
         except CancelledError:
             raise
         except RuntimeError as exc:
@@ -259,8 +284,13 @@ class Engine:
                 raise
             self.report(f'Initial scan failed: {exc}. Trying the backup DVD reader once.')
             recovering = True
-            scanned = self.scan(device, 0, logs / 'recovery-scan.log', recovery=True)
-        titles = [t for t in scanned if seconds(t) >= self.minimum_minutes * 60]
+            scanned = self.scan(device, title_index or 0, logs / 'recovery-scan.log', recovery=True)
+        titles = [t for t in scanned if seconds(t) >= self.minimum_minutes * 60
+                  and (title_index is None or t['Index'] == title_index)]
+        if title_index is None and len(titles) >= 20:
+            raise RuntimeError(f'This disc has {len(titles)} movie-length titles. Select the movie title '
+                               'before retrying; refusing to rip dozens of possibly duplicate versions. '
+                               'Quit and restart with --title NUMBER, or request help identifying the menu-selected title.')
         if not titles:
             raise RuntimeError(f'No titles of at least {self.minimum_minutes} minutes found. Adjust the minimum and retry.')
         self.report(f'Found {len(titles)} movie-length title(s). Saving each separately.')
@@ -330,7 +360,12 @@ class Engine:
                         try:
                             recovery_only = self.recovery_next_disc
                             self.recovery_next_disc = False
-                            self.process(identity, mount, device, recovery_only=recovery_only)
+                            selected_title = self.title_next_disc
+                            self.title_next_disc = None
+                            options = {'recovery_only': recovery_only}
+                            if selected_title is not None:
+                                options['title_index'] = selected_title
+                            self.process(identity, mount, device, **options)
                         except Exception as exc:
                             self.report(f'Needs attention: {exc}')
                         finally:

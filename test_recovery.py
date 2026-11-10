@@ -160,6 +160,72 @@ class Recovery(unittest.TestCase):
         self.assertEqual(calls, [{'recovery_only': True}])
         self.assertFalse(self.engine.recovery_next_disc)
 
+    def test_advancing_scan_is_progress_even_without_encode_or_file_growth(self):
+        code = """import json,time
+for title in range(1,9):
+ print('Progress: '+json.dumps({'Scanning':{'Title':title,'TitleCount':8,'Preview':1,'Progress':title/8},'State':'SCANNING'}),flush=True)
+ time.sleep(.08)
+"""
+        self.engine.run_command(['/usr/bin/python3', '-c', code], self.root / 'scan-progress.log', timeout=.2)
+        self.assertTrue(any(message.startswith('Scanning: title 8/8') for message in self.messages))
+
+    def test_unchanged_scan_status_still_times_out(self):
+        code = """import json,time
+while True:
+ print('Progress: '+json.dumps({'Scanning':{'Title':8,'TitleCount':50,'Preview':1,'Progress':.58},'State':'SCANNING'}),flush=True)
+ time.sleep(.04)
+"""
+        with self.assertRaisesRegex(RuntimeError, 'No measurable progress'):
+            self.engine.run_command(['/usr/bin/python3', '-c', code], self.root / 'stuck-scan.log', timeout=.2)
+
+    def test_split_scan_json_and_stderr_do_not_hide_progress(self):
+        code = """import sys,time,json
+for title in range(1,7):
+ value='Progress: '+json.dumps({'Scanning':{'Title':title,'TitleCount':6,'Preview':1,'Progress':title/6},'State':'SCANNING'})
+ split=value.index('Preview')
+ sys.stdout.write(value[:split]); sys.stdout.flush()
+ sys.stderr.write('DVD diagnostic\\n'); sys.stderr.flush()
+ time.sleep(.04)
+ sys.stdout.write(value[split:]+'\\n'); sys.stdout.flush()
+ time.sleep(.04)
+"""
+        self.engine.run_command(['/usr/bin/python3', '-c', code], self.root / 'split-scan.log', timeout=.2)
+        self.assertTrue(any(message.startswith('Scanning: title 6/6') for message in self.messages))
+
+    def test_selected_title_is_scanned_directly(self):
+        self.run_disc(recovery_only=True, title_index=10)
+        scans=[args for args, kw in self.calls if '--scan' in args and str(self.device) in args]
+        self.assertTrue(scans)
+        self.assertEqual(scans[0][scans[0].index('-t')+1], '10')
+        self.assertEqual(self.encodes, [True])
+
+    def test_selected_title_cannot_accidentally_encode_other_titles(self):
+        with self.assertRaisesRegex(RuntimeError, 'No titles'):
+            self.run_disc(recovery_only=True, title_index=11)
+        self.assertFalse(self.encodes)
+
+    def test_many_feature_titles_require_selection_before_encoding(self):
+        candidates=[dict(movie(), Index=index) for index in range(1,26)]
+        with patch.object(self.engine, 'scan', return_value=candidates):
+            with self.assertRaisesRegex(RuntimeError, '25 movie-length titles'):
+                self.engine.process('fingerprint',Path('SHREK_2'),self.device)
+        self.assertFalse(self.engine.history)
+        self.assertFalse(self.encodes)
+
+    def test_watcher_consumes_title_selection_once(self):
+        self.engine.title_next_disc=29
+        self.engine.recovery_next_disc=True
+        calls=[]
+        def process(*args,**kwargs):
+            calls.append(kwargs)
+            self.engine.quit.set()
+        with patch('core.find_discs',return_value=[('fingerprint',Path('DVD'),self.device)]), \
+             patch('core.subprocess.run',return_value=SimpleNamespace(returncode=1)), \
+             patch.object(self.engine,'process',side_effect=process):
+            self.engine.watch()
+        self.assertEqual(calls,[{'recovery_only':True,'title_index':29}])
+        self.assertIsNone(self.engine.title_next_disc)
+
     def test_subprocess_stderr_errors_reject_exit_zero(self):
         log = self.root / 'decode.log'
         with self.assertRaisesRegex(RuntimeError, 'Playback decoding errors'):

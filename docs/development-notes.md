@@ -47,3 +47,11 @@
 - Git tracks source, tests, installer and documentation. Runtime settings, completion history, keys, logs, movie files and disc copies stay on the local machine.
 - A clone is not a backup of ripped movies. Install external dependencies separately and use `install.py` to recreate desktop launchers.
 - Library settings: https://videolan.videolan.me/libdvdcss/ .
+
+## Scan timeout and explicit title selection
+
+- Iron Man 2 exposed a stall-accounting bug: encoding/file-growth/FFmpeg progress refreshed the clock, but HandBrake JSON Scanning updates did not. Both the primary and backup scans were stopped at ten minutes despite reaching new titles.
+- The runner now tracks complete scan states from stdout across chunk boundaries without stderr interference. Genuine unchanged scans still time out. Three subprocess regressions verify advancing, unchanged and split/interleaved updates.
+- Many similarly long title entries do not identify the real movie. A bounded manual navigation probe on the inserted disc reached title 29; the app does not generalize that choice to other discs.
+- A one-time `--title NUMBER` startup option performs a direct title scan and filters results to that exact index. A 20-or-more-long-title guard prevents blind bulk encoding after an ambiguous all-title scan. Tests cover exact selection, no substitution, one-shot consumption and the ambiguity guard.
+- The targeted Iron Man 2 encode is running at the time of this update; a finished rip is not claimed yet. The suite now passes 33 tests.
