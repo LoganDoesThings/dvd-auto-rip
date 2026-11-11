@@ -65,3 +65,7 @@
 - Enhanced output uses proper source color conversion, square pixels and aspect-preserving padding, HEVC Main 10 and unchanged frame rate; all audio/subtitles/attachments/chapters are copied. HDR is creative SDR up-mapping; no invented mastering-display or measured-light metadata. Source color/pixel aspect must be known; already-HDR or known interlaced sources are rejected for separate handling.
 - Completion requires format, duration, track/chapter counts and full video/all-audio decode checks. Cropping/stretching, dropping tracks, or marking a partial as complete are not used to force success.
 - Verified 63 tests, real short 4K HDR worker integration with subtitle/audio/chapter retention, GTK settings smoke checks, and actual pillarbox pixels on a synthetic 4:3 frame. Full-film enhancement remains a long-running pending job; short integration success is not a full-film quality verdict.
+
+## HDR horizontal corruption repair
+
+A full Iron Man 2 4K HDR file decoded without errors but contained horizontal spatial breakup. Software-decoded frames reproduced the defect; the DVD rip was clean. Repeating the same HDR graph with four filter threads reproduced it, while one filter thread produced clean frames. Enhancement encoding now uses `-filter_threads 1`; x265 encoder threads remain enabled. Decode/runtime/track validation cannot establish visual correctness. Inspect encoded samples before committing to long conversions.

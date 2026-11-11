@@ -378,8 +378,10 @@ def run_job(folder):
             filters = make_filter(video, data['preset'])
             (folder / 'filter.txt').write_text(filters)
             update(source_duration_seconds=duration, source_fps=rate, width=width, height=height)
+            # Multi-threaded HDR filtering produced spatially corrupted but decodable frames
+            # on the installed FFmpeg build. Keep filtering serial; x265 stays threaded.
             args = [ff, '-nostdin', '-n', '-hide_banner', '-nostats', '-v', 'warning',
-                    '-filter_threads', '4', '-i', str(source), '-map', '0:v:0', '-map', '0:a?',
+                    '-filter_threads', '1', '-i', str(source), '-map', '0:v:0', '-map', '0:a?',
                     '-map', '0:s?', '-map', '0:t?', '-map_metadata', '0', '-map_chapters', '0',
                     '-vf', filters, '-c:v', 'libx265', '-preset', 'veryfast', '-crf', '18',
                     '-pix_fmt', 'yuv420p10le', '-x265-params',
